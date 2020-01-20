@@ -1,25 +1,12 @@
 package com.ibm.wala.examples.analysis.js;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.net.JarURLConnection;
-import java.net.URL;
-import java.util.Set;
-import java.util.function.Function;
-import java.util.function.Supplier;
-
 import com.ibm.wala.cast.ir.ssa.AstIRFactory;
 import com.ibm.wala.cast.ir.translator.TranslatorToCAst.Error;
 import com.ibm.wala.cast.js.html.DefaultSourceExtractor;
 import com.ibm.wala.cast.js.html.JSSourceExtractor;
 import com.ibm.wala.cast.js.html.WebPageLoaderFactory;
 import com.ibm.wala.cast.js.html.WebUtil;
-import com.ibm.wala.cast.js.ipa.callgraph.JSAnalysisOptions;
-import com.ibm.wala.cast.js.ipa.callgraph.JSCFABuilder;
-import com.ibm.wala.cast.js.ipa.callgraph.JSCallGraphUtil;
-import com.ibm.wala.cast.js.ipa.callgraph.JSZeroOrOneXCFABuilder;
-import com.ibm.wala.cast.js.ipa.callgraph.PropertyNameContextSelector;
+import com.ibm.wala.cast.js.ipa.callgraph.*;
 import com.ibm.wala.cast.js.ipa.callgraph.correlations.extraction.CorrelatedPairExtractorFactory;
 import com.ibm.wala.cast.js.loader.JavaScriptLoader;
 import com.ibm.wala.cast.js.loader.JavaScriptLoaderFactory;
@@ -29,10 +16,12 @@ import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.classLoader.Module;
 import com.ibm.wala.classLoader.SourceModule;
 import com.ibm.wala.classLoader.SourceURLModule;
-import com.ibm.wala.ipa.callgraph.IAnalysisCacheView;
 import com.ibm.wala.ipa.callgraph.AnalysisScope;
 import com.ibm.wala.ipa.callgraph.CallGraph;
 import com.ibm.wala.ipa.callgraph.Entrypoint;
+import com.ibm.wala.ipa.callgraph.IAnalysisCacheView;
+import com.ibm.wala.ipa.callgraph.propagation.InstanceKey;
+import com.ibm.wala.ipa.callgraph.propagation.PointerAnalysis;
 import com.ibm.wala.ipa.callgraph.propagation.PropagationCallGraphBuilder;
 import com.ibm.wala.ipa.callgraph.propagation.SSAPropagationCallGraphBuilder;
 import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXInstanceKeys;
@@ -44,10 +33,20 @@ import com.ibm.wala.util.WalaException;
 import com.ibm.wala.util.collections.HashSetFactory;
 import com.ibm.wala.util.io.FileProvider;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.net.JarURLConnection;
+import java.net.URL;
+import java.util.Set;
+import java.util.function.Supplier;
+
 /**
  * TODO this class is a mess. rewrite.
  */
 public class JSCallGraphBuilderUtil extends com.ibm.wala.cast.js.ipa.callgraph.JSCallGraphUtil {
+
+
 
   public static enum CGBuilderType {
     ZERO_ONE_CFA(false, true, true),
@@ -88,9 +87,10 @@ public class JSCallGraphBuilderUtil extends com.ibm.wala.cast.js.ipa.callgraph.J
     JavaScriptLoaderFactory loaders = JSCallGraphUtil.makeLoaders(preprocessor);
 
     AnalysisScope scope = makeScriptScope(dir, name, loaders, loader);
-
+//    System.out.println("scope: "+ scope);
     return makeCG(loaders, scope, builderType, AstIRFactory.makeDefaultFactory());
   }
+
 
   public static URL getURLforFile(String dir, String name, ClassLoader loader) throws IOException {
     File f = null;
@@ -106,7 +106,7 @@ public class JSCallGraphBuilderUtil extends com.ibm.wala.cast.js.ipa.callgraph.J
   }
   
   public static AnalysisScope makeScriptScope(String dir, String name, JavaScriptLoaderFactory loaders, ClassLoader loader) throws IOException {
-    return makeScope(makeSourceModules(dir, name, loader), loaders, JavaScriptLoader.JS);    
+    return makeScope(makeSourceModules(dir, name, loader), loaders, JavaScriptLoader.JS);
   }
 
   public static AnalysisScope makeScriptScope(String dir, String name, JavaScriptLoaderFactory loaders) throws IOException {
@@ -135,7 +135,12 @@ public class JSCallGraphBuilderUtil extends com.ibm.wala.cast.js.ipa.callgraph.J
   }
 
   public static CallGraph makeScriptCG(String dir, String name) throws IOException, IllegalArgumentException, CancelException, WalaException {
-    return makeScriptCG(dir, name, CGBuilderType.ZERO_ONE_CFA, JSCallGraphBuilderUtil.class.getClassLoader());
+    return makeScriptCG(dir, name, CGBuilderType.ONE_CFA, JSCallGraphBuilderUtil.class.getClassLoader());
+  }
+
+  public static PointerAnalysis<InstanceKey> getPointerAnalysis(String dir, String name) throws WalaException, IOException, CancelException {
+    return getPointerAnalysis(dir, name, CGBuilderType.ONE_CFA, JSCallGraphBuilderUtil.class.getClassLoader());
+
   }
   
   public static CallGraph makeScriptCG(String dir, String name, ClassLoader loader) throws IOException, IllegalArgumentException, CancelException, WalaException {
@@ -146,8 +151,19 @@ public class JSCallGraphBuilderUtil extends com.ibm.wala.cast.js.ipa.callgraph.J
       IllegalArgumentException, CancelException, WalaException {
     PropagationCallGraphBuilder b = makeScriptCGBuilder(dir, name, builderType, loader);
     CallGraph CG = b.makeCallGraph(b.getOptions());
-    // dumpCG(b.getPointerAnalysis(), CG);
+//    CG.ge
+    SSAPropagationCallGraphBuilder b1 = makeScriptCGBuilder(dir, name, builderType, loader);
+    dumpCG(b1.getCFAContextInterpreter(), b.getPointerAnalysis(), CG);
     return CG;
+  }
+
+  public static PointerAnalysis<InstanceKey> getPointerAnalysis(String dir, String name, CGBuilderType builderType, ClassLoader loader) throws IOException, WalaException, CancelException {
+    PropagationCallGraphBuilder b = makeScriptCGBuilder(dir, name, builderType, loader);
+    CallGraph CG = b.makeCallGraph(b.getOptions());
+
+    return b.getPointerAnalysis();
+//    dumpCG(b.getPointerAnalysis(), CG);
+
   }
 
   public static CallGraph makeScriptCG(SourceModule[] scripts, CGBuilderType builderType, IRFactory<IMethod> irFactory) throws IOException, IllegalArgumentException,
@@ -222,6 +238,7 @@ public class JSCallGraphBuilderUtil extends com.ibm.wala.cast.js.ipa.callgraph.J
       IClassHierarchy cha = makeHierarchy(scope, loaders);
       com.ibm.wala.cast.util.Util.checkForFrontEndErrors(cha);
       Iterable<Entrypoint> roots = makeScriptRoots(cha);
+//      System.out.println(roots.);
       JSAnalysisOptions options = makeOptions(scope, cha, roots);
       options.setHandleCallApply(builderType.handleCallApply());
       IAnalysisCacheView cache = makeCache(irFactory);
@@ -229,7 +246,7 @@ public class JSCallGraphBuilderUtil extends com.ibm.wala.cast.js.ipa.callgraph.J
           builderType.useOneCFA());
       if(builderType.extractCorrelatedPairs())
         builder.setContextSelector(new PropertyNameContextSelector(builder.getAnalysisCache(), 2, builder.getContextSelector()));
-
+//      System.out.println(builder.getCallGraph().get);
       return builder;
     } catch (ClassHierarchyException e) {
       assert false : "internal error building class hierarchy";
